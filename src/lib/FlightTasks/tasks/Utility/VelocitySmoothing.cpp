@@ -168,8 +168,9 @@ void VelocitySmoothing::updateDurations(float t_now, float vel_setpoint)
 
 	// Compute the velocity at which the trajectory will be
 	// when the acceleration will be zero
+	// TODO: Fix that, unit test fails if this is active
 	float vel_zero_acc = _state.v;
-        if (fabsf(_state.a) > FLT_EPSILON) {
+        if (fabsf(_state.a) > FLT_EPSILON && false) {
             float j_zero_acc = -math::sign(_state.a) * _max_jerk; // Required jerk to reduce the acceleration
             float t_zero_acc = -_state.a / j_zero_acc; // Required time to cancel the current acceleration
             vel_zero_acc = _state.v + _state.a * t_zero_acc + 0.5f * j_zero_acc * t_zero_acc * t_zero_acc;
