@@ -10,8 +10,11 @@ then
 fi
 
 # Possible external compasses
-hmc5883 -X start
+#hmc5883 -X start
+lis3mdl -X start
 
-bmp280 start
+#bmp280 start
+
+fakebaro start
 
 adc start

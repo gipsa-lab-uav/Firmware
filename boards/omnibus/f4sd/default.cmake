@@ -13,11 +13,13 @@ px4_add_board(
 
 	DRIVERS
 		#barometer # all available barometer drivers
-		barometer/bmp280
+		#barometer/bmp280
+		barometer/fakebaro
 		#batt_smbus
 		#camera_trigger
 		#differential_pressure # all available differential pressure drivers
 		#distance_sensor # all available distance sensor drivers
+		distance_sensor/teraranger
 		gps
 		#heater
 		#imu # all available imu drivers
@@ -27,7 +29,7 @@ px4_add_board(
 		#lights/oreoled
 		lights/rgbled
 		#magnetometer # all available magnetometer drivers
-		magnetometer/hmc5883
+		magnetometer/lis3mdl
 		#mkblctrl
 		#pca9685
 		#pwm_input
@@ -42,7 +44,7 @@ px4_add_board(
 		#telemetry # all available telemetry drivers
 		telemetry/frsky_telemetry
 		#test_ppm
-		osd
+		#osd
 
 	MODULES
 		attitude_estimator_q
