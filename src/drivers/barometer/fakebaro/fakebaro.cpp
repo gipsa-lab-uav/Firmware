@@ -181,6 +181,9 @@ void FakeBaro::cycle()
 	_brp.timestamp = hrt_absolute_time();
 	
 	/* publish it */
+	
+	_brp.pressure = 1013 + 1e-3*(_brp.timestamp&0xff);
+
 	orb_publish(ORB_ID(sensor_baro), _baro_topic, &_brp);
 
 	_reports->force(&_brp);
