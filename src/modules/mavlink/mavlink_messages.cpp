@@ -85,6 +85,7 @@
 #include "streams/HIL_STATE_QUATERNION.hpp"
 #include "streams/HOME_POSITION.hpp"
 #include "streams/LOCAL_POSITION_NED.hpp"
+#include "streams/LOCAL_POSITION_NED_COV.hpp"
 #include "streams/MANUAL_CONTROL.hpp"
 #include "streams/MOUNT_ORIENTATION.hpp"
 #include "streams/NAV_CONTROLLER_OUTPUT.hpp"
@@ -422,6 +423,9 @@ static const StreamListItem streams_list[] = {
 #if defined(POSITION_TARGET_LOCAL_NED_HPP)
 	create_stream_list_item<MavlinkStreamPositionTargetLocalNed>(),
 #endif // POSITION_TARGET_LOCAL_NED_HPP
+#if defined(POSITION_TARGET_LOCAL_NED_COV_HPP)
+	create_stream_list_item<MavlinkStreamPositionTargetLocalNedCov>(),
+#endif // POSITION_TARGET_LOCAL_NED_COV_HPP
 #if defined(ATTITUDE_TARGET_HPP)
 	create_stream_list_item<MavlinkStreamAttitudeTarget>(),
 #endif // ATTITUDE_TARGET_HPP
