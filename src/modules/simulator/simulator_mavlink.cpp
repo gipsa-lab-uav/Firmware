@@ -40,6 +40,7 @@
 #include <px4_platform_common/time.h>
 #include <px4_platform_common/tasks.h>
 #include <lib/ecl/geo/geo.h>
+#include <drivers/device/Device.hpp>
 #include <drivers/drv_pwm_output.h>
 #include <conversion/rotation.h>
 #include <mathlib/mathlib.h>
@@ -51,6 +52,7 @@
 #include <pthread.h>
 #include <sys/socket.h>
 #include <termios.h>
+#include <arpa/inet.h>
 
 #include <limits>
 
@@ -86,52 +88,58 @@ void Simulator::actuator_controls_from_outputs(mavlink_hil_actuator_controls_t *
 
 	int _system_type = _param_mav_type.get();
 
-	unsigned motors_count;
+	/* 'pos_thrust_motors_count' indicates number of motor channels which are configured with 0..1 range (positive thrust)
+	all other motors are configured for -1..1 range */
+	unsigned pos_thrust_motors_count;
 	bool is_fixed_wing;
 
 	switch (_system_type) {
 	case MAV_TYPE_AIRSHIP:
 	case MAV_TYPE_VTOL_DUOROTOR:
 	case MAV_TYPE_COAXIAL:
-		motors_count = 2;
+		pos_thrust_motors_count = 2;
 		is_fixed_wing = false;
 		break;
 
 	case MAV_TYPE_TRICOPTER:
-		motors_count = 3;
+		pos_thrust_motors_count = 3;
 		is_fixed_wing = false;
 		break;
 
 	case MAV_TYPE_QUADROTOR:
 	case MAV_TYPE_VTOL_QUADROTOR:
 	case MAV_TYPE_VTOL_TILTROTOR:
-		motors_count = 4;
+		pos_thrust_motors_count = 4;
 		is_fixed_wing = false;
 		break;
 
 	case MAV_TYPE_VTOL_RESERVED2:
-		motors_count = 5;
+		pos_thrust_motors_count = 5;
 		is_fixed_wing = false;
 		break;
 
 	case MAV_TYPE_HEXAROTOR:
-		motors_count = 6;
+		pos_thrust_motors_count = 6;
 		is_fixed_wing = false;
 		break;
 
 	case MAV_TYPE_OCTOROTOR:
+		pos_thrust_motors_count = 8;
+		is_fixed_wing = false;
+		break;
+
 	case MAV_TYPE_SUBMARINE:
-		motors_count = 8;
+		pos_thrust_motors_count = 0;
 		is_fixed_wing = false;
 		break;
 
 	case MAV_TYPE_FIXED_WING:
-		motors_count = 0;
+		pos_thrust_motors_count = 0;
 		is_fixed_wing = true;
 		break;
 
 	default:
-		motors_count = 0;
+		pos_thrust_motors_count = 0;
 		is_fixed_wing = false;
 		break;
 	}
@@ -142,7 +150,7 @@ void Simulator::actuator_controls_from_outputs(mavlink_hil_actuator_controls_t *
 			msg->controls[i] = 0.0f;
 
 		} else if ((is_fixed_wing && i == 4) ||
-			   (!is_fixed_wing && i < motors_count)) {	//multirotor, rotor channel
+			   (!is_fixed_wing && i < pos_thrust_motors_count)) {	//multirotor, rotor channel
 			/* scale PWM out PWM_DEFAULT_MIN..PWM_DEFAULT_MAX us to 0..1 for rotors */
 			msg->controls[i] = (_actuator_outputs.output[i] - PWM_DEFAULT_MIN) / (PWM_DEFAULT_MAX - PWM_DEFAULT_MIN);
 			msg->controls[i] = math::constrain(msg->controls[i], 0.f, 1.f);
@@ -199,13 +207,39 @@ void Simulator::update_sensors(const hrt_abstime &time, const mavlink_hil_sensor
 	// accel
 	if ((sensors.fields_updated & SensorSource::ACCEL) == SensorSource::ACCEL) {
 		for (int i = 0; i < ACCEL_COUNT_MAX; i++) {
-			if (_accel_stuck[i]) {
-				_px4_accel[i].update(time, _last_accel[i](0), _last_accel[i](1), _last_accel[i](2));
+			if (i == 0) {
+				// accel 0 is simulated FIFO
+				static constexpr float ACCEL_FIFO_SCALE = CONSTANTS_ONE_G / 2048.f;
+				static constexpr float ACCEL_FIFO_RANGE = 16.f * CONSTANTS_ONE_G;
 
-			} else if (!_accel_blocked[i]) {
-				_px4_accel[i].set_temperature(_sensors_temperature);
-				_px4_accel[i].update(time, sensors.xacc, sensors.yacc, sensors.zacc);
-				_last_accel[i] = matrix::Vector3f{sensors.xacc, sensors.yacc, sensors.zacc};
+				_px4_accel[i].set_scale(ACCEL_FIFO_SCALE);
+				_px4_accel[i].set_range(ACCEL_FIFO_RANGE);
+
+				if (_accel_stuck[i]) {
+					_px4_accel[i].updateFIFO(_last_accel_fifo);
+
+				} else if (!_accel_blocked[i]) {
+					_px4_accel[i].set_temperature(_sensors_temperature);
+
+					_last_accel_fifo.samples = 1;
+					_last_accel_fifo.dt = time - _last_accel_fifo.timestamp_sample;
+					_last_accel_fifo.timestamp_sample = time;
+					_last_accel_fifo.x[0] = sensors.xacc / ACCEL_FIFO_SCALE;
+					_last_accel_fifo.y[0] = sensors.yacc / ACCEL_FIFO_SCALE;
+					_last_accel_fifo.z[0] = sensors.zacc / ACCEL_FIFO_SCALE;
+
+					_px4_accel[i].updateFIFO(_last_accel_fifo);
+				}
+
+			} else {
+				if (_accel_stuck[i]) {
+					_px4_accel[i].update(time, _last_accel[i](0), _last_accel[i](1), _last_accel[i](2));
+
+				} else if (!_accel_blocked[i]) {
+					_px4_accel[i].set_temperature(_sensors_temperature);
+					_px4_accel[i].update(time, sensors.xacc, sensors.yacc, sensors.zacc);
+					_last_accel[i] = matrix::Vector3f{sensors.xacc, sensors.yacc, sensors.zacc};
+				}
 			}
 		}
 	}
@@ -213,13 +247,39 @@ void Simulator::update_sensors(const hrt_abstime &time, const mavlink_hil_sensor
 	// gyro
 	if ((sensors.fields_updated & SensorSource::GYRO) == SensorSource::GYRO) {
 		for (int i = 0; i < GYRO_COUNT_MAX; i++) {
-			if (_gyro_stuck[i]) {
-				_px4_gyro[i].update(time, _last_gyro[i](0), _last_gyro[i](1), _last_gyro[i](2));
+			if (i == 0) {
+				// gyro 0 is simulated FIFO
+				static constexpr float GYRO_FIFO_SCALE = math::radians(2000.f / 32768.f);
+				static constexpr float GYRO_FIFO_RANGE = math::radians(2000.f);
 
-			} else if (!_gyro_blocked[i]) {
-				_px4_gyro[i].set_temperature(_sensors_temperature);
-				_px4_gyro[i].update(time, sensors.xgyro, sensors.ygyro, sensors.zgyro);
-				_last_gyro[i] = matrix::Vector3f{sensors.xgyro, sensors.ygyro, sensors.zgyro};
+				_px4_gyro[i].set_scale(GYRO_FIFO_SCALE);
+				_px4_gyro[i].set_range(GYRO_FIFO_RANGE);
+
+				if (_gyro_stuck[i]) {
+					_px4_gyro[i].updateFIFO(_last_gyro_fifo);
+
+				} else if (!_gyro_blocked[i]) {
+					_px4_gyro[i].set_temperature(_sensors_temperature);
+
+					_last_gyro_fifo.samples = 1;
+					_last_gyro_fifo.dt = time - _last_gyro_fifo.timestamp_sample;
+					_last_gyro_fifo.timestamp_sample = time;
+					_last_gyro_fifo.x[0] = sensors.xgyro / GYRO_FIFO_SCALE;
+					_last_gyro_fifo.y[0] = sensors.ygyro / GYRO_FIFO_SCALE;
+					_last_gyro_fifo.z[0] = sensors.zgyro / GYRO_FIFO_SCALE;
+
+					_px4_gyro[i].updateFIFO(_last_gyro_fifo);
+				}
+
+			} else {
+				if (_gyro_stuck[i]) {
+					_px4_gyro[i].update(time, _last_gyro[i](0), _last_gyro[i](1), _last_gyro[i](2));
+
+				} else if (!_gyro_blocked[i]) {
+					_px4_gyro[i].set_temperature(_sensors_temperature);
+					_px4_gyro[i].update(time, sensors.xgyro, sensors.ygyro, sensors.zgyro);
+					_last_gyro[i] = matrix::Vector3f{sensors.xgyro, sensors.ygyro, sensors.zgyro};
+				}
 			}
 		}
 	}
@@ -444,25 +504,21 @@ void Simulator::handle_message_hil_state_quaternion(const mavlink_message_t *msg
 	}
 
 	/* local position */
-	struct vehicle_local_position_s hil_lpos = {};
+	vehicle_local_position_s hil_lpos{};
 	{
 		hil_lpos.timestamp = timestamp;
 
 		double lat = hil_state.lat * 1e-7;
 		double lon = hil_state.lon * 1e-7;
 
-		if (!_hil_local_proj_inited) {
-			_hil_local_proj_inited = true;
-			map_projection_init(&_hil_local_proj_ref, lat, lon);
-			_hil_ref_timestamp = timestamp;
-			_hil_ref_lat = lat;
-			_hil_ref_lon = lon;
-			_hil_ref_alt = hil_state.alt / 1000.0f;
+		if (!map_projection_initialized(&_global_local_proj_ref)) {
+			map_projection_init(&_global_local_proj_ref, lat, lon);
+			_global_local_alt0 = hil_state.alt / 1000.f;
 		}
 
 		float x;
 		float y;
-		map_projection_project(&_hil_local_proj_ref, lat, lon, &x, &y);
+		map_projection_project(&_global_local_proj_ref, lat, lon, &x, &y);
 		hil_lpos.timestamp = timestamp;
 		hil_lpos.xy_valid = true;
 		hil_lpos.z_valid = true;
@@ -470,7 +526,7 @@ void Simulator::handle_message_hil_state_quaternion(const mavlink_message_t *msg
 		hil_lpos.v_z_valid = true;
 		hil_lpos.x = x;
 		hil_lpos.y = y;
-		hil_lpos.z = _hil_ref_alt - hil_state.alt / 1000.0f;
+		hil_lpos.z = _global_local_alt0 - hil_state.alt / 1000.0f;
 		hil_lpos.vx = hil_state.vx / 100.0f;
 		hil_lpos.vy = hil_state.vy / 100.0f;
 		hil_lpos.vz = hil_state.vz / 100.0f;
@@ -478,10 +534,10 @@ void Simulator::handle_message_hil_state_quaternion(const mavlink_message_t *msg
 		hil_lpos.heading = euler.psi();
 		hil_lpos.xy_global = true;
 		hil_lpos.z_global = true;
-		hil_lpos.ref_lat = _hil_ref_lat;
-		hil_lpos.ref_lon = _hil_ref_lon;
-		hil_lpos.ref_alt = _hil_ref_alt;
-		hil_lpos.ref_timestamp = _hil_ref_timestamp;
+		hil_lpos.ref_timestamp = _global_local_proj_ref.timestamp;
+		hil_lpos.ref_lat = math::degrees(_global_local_proj_ref.lat_rad);
+		hil_lpos.ref_lon = math::degrees(_global_local_proj_ref.lon_rad);
+		hil_lpos.ref_alt = _global_local_alt0;
 		hil_lpos.vxy_max = std::numeric_limits<float>::infinity();
 		hil_lpos.vz_max = std::numeric_limits<float>::infinity();
 		hil_lpos.hagl_min = std::numeric_limits<float>::infinity();
@@ -594,6 +650,10 @@ void Simulator::send()
 	pthread_setname_np(pthread_self(), "sim_send");
 #endif
 
+	// Subscribe to topics.
+	// Only subscribe to the first actuator_outputs to fill a single HIL_ACTUATOR_CONTROLS.
+	_actuator_outputs_sub = orb_subscribe_multi(ORB_ID(actuator_outputs), 0);
+
 	// Before starting, we ought to send a heartbeat to initiate the SITL
 	// simulator to start sending sensor data which will set the time and
 	// get everything rolling.
@@ -631,6 +691,8 @@ void Simulator::send()
 			send_controls();
 		}
 	}
+
+	orb_unsubscribe(_actuator_outputs_sub);
 }
 
 void Simulator::request_hil_state_quaternion()
@@ -667,6 +729,10 @@ void Simulator::run()
 	_myaddr.sin_addr.s_addr = htonl(INADDR_ANY);
 	_myaddr.sin_port = htons(_port);
 
+	if (_tcp_remote_ipaddr != nullptr) {
+		_myaddr.sin_addr.s_addr = inet_addr(_tcp_remote_ipaddr);
+	}
+
 	if (_ip == InternetProtocol::UDP) {
 
 		if ((_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
@@ -691,7 +757,7 @@ void Simulator::run()
 				break;
 
 			} else {
-				system_usleep(100);
+				system_usleep(500);
 			}
 		}
 
@@ -722,7 +788,7 @@ void Simulator::run()
 
 			} else {
 				::close(_fd);
-				system_usleep(100);
+				system_usleep(500);
 			}
 		}
 
@@ -735,7 +801,7 @@ void Simulator::run()
 
 	pthread_attr_t sender_thread_attr;
 	pthread_attr_init(&sender_thread_attr);
-	pthread_attr_setstacksize(&sender_thread_attr, PX4_STACK_ADJUSTED(4000));
+	pthread_attr_setstacksize(&sender_thread_attr, PX4_STACK_ADJUSTED(8000));
 
 	struct sched_param param;
 	(void)pthread_attr_getschedparam(&sender_thread_attr, &param);
@@ -769,10 +835,6 @@ void Simulator::run()
 
 #endif
 
-	// Subscribe to topics.
-	// Only subscribe to the first actuator_outputs to fill a single HIL_ACTUATOR_CONTROLS.
-	_actuator_outputs_sub = orb_subscribe_multi(ORB_ID(actuator_outputs), 0);
-
 	// got data from simulator, now activate the sending thread
 	pthread_create(&sender_thread, &sender_thread_attr, Simulator::sending_trampoline, nullptr);
 	pthread_attr_destroy(&sender_thread_attr);
@@ -789,6 +851,7 @@ void Simulator::run()
 
 		if (pret == 0) {
 			// Timed out.
+			PX4_ERR("poll timeout %d, %d", pret, errno);
 			continue;
 		}
 
@@ -833,8 +896,6 @@ void Simulator::run()
 
 #endif
 	}
-
-	orb_unsubscribe(_actuator_outputs_sub);
 }
 
 #ifdef ENABLE_UART_RC_INPUT
@@ -1304,8 +1365,14 @@ int Simulator::publish_distance_topic(const mavlink_distance_sensor_t *dist_mavl
 	dist.max_distance = dist_mavlink->max_distance / 100.0f;
 	dist.current_distance = dist_mavlink->current_distance / 100.0f;
 	dist.type = dist_mavlink->type;
-	dist.id = dist_mavlink->id;
 	dist.variance = dist_mavlink->covariance * 1e-4f; // cm^2 to m^2
+
+	device::Device::DeviceId device_id {};
+	device_id.devid_s.bus_type = device::Device::DeviceBusType_SIMULATION;
+	device_id.devid_s.address = dist_mavlink->id;
+	device_id.devid_s.devtype = DRV_DIST_DEVTYPE_SIM;
+
+	dist.device_id = device_id.devid;
 
 	// MAVLink DISTANCE_SENSOR signal_quality value of 0 means unset/unknown
 	// quality value. Also it comes normalised between 1 and 100 while the uORB
@@ -1350,7 +1417,7 @@ int Simulator::publish_distance_topic(const mavlink_distance_sensor_t *dist_mavl
 
 	// New publishers will be created based on the sensor ID's being different or not
 	for (size_t i = 0; i < sizeof(_dist_sensor_ids) / sizeof(_dist_sensor_ids[0]); i++) {
-		if (_dist_pubs[i] && _dist_sensor_ids[i] == dist.id) {
+		if (_dist_pubs[i] && _dist_sensor_ids[i] == dist.device_id) {
 			_dist_pubs[i]->publish(dist);
 			break;
 
@@ -1358,7 +1425,7 @@ int Simulator::publish_distance_topic(const mavlink_distance_sensor_t *dist_mavl
 
 		if (_dist_pubs[i] == nullptr) {
 			_dist_pubs[i] = new uORB::PublicationMulti<distance_sensor_s> {ORB_ID(distance_sensor)};
-			_dist_sensor_ids[i] = dist.id;
+			_dist_sensor_ids[i] = dist.device_id;
 			_dist_pubs[i]->publish(dist);
 			break;
 		}

@@ -53,6 +53,8 @@
 #include <uORB/topics/vehicle_imu.h>
 #include <uORB/topics/vehicle_imu_status.h>
 
+using namespace time_literals;
+
 namespace sensors
 {
 
@@ -75,19 +77,23 @@ private:
 
 	struct IntervalAverage {
 		hrt_abstime timestamp_sample_last{0};
-		float interval_sum{0.f};
-		float interval_count{0.f};
+		uint32_t interval_sum{0};
+		uint32_t interval_samples{0};
+		uint32_t interval_count{0};
 		float update_interval{0.f};
+		float update_interval_raw{0.f};
 	};
 
-	bool UpdateIntervalAverage(IntervalAverage &intavg, const hrt_abstime &timestamp_sample);
+	bool UpdateIntervalAverage(IntervalAverage &intavg, const hrt_abstime &timestamp_sample, uint8_t samples = 1);
 	void UpdateIntegratorConfiguration();
 	void UpdateGyroVibrationMetrics(const matrix::Vector3f &delta_angle);
 	void UpdateAccelVibrationMetrics(const matrix::Vector3f &delta_velocity);
 
 	uORB::PublicationMulti<vehicle_imu_s> _vehicle_imu_pub{ORB_ID(vehicle_imu)};
 	uORB::PublicationMulti<vehicle_imu_status_s> _vehicle_imu_status_pub{ORB_ID(vehicle_imu_status)};
-	uORB::Subscription _params_sub{ORB_ID(parameter_update)};
+
+	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
+
 	uORB::SubscriptionCallbackWorkItem _sensor_accel_sub;
 	uORB::SubscriptionCallbackWorkItem _sensor_gyro_sub;
 

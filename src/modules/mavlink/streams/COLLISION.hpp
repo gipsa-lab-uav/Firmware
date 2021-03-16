@@ -39,30 +39,13 @@
 class MavlinkStreamCollision : public MavlinkStream
 {
 public:
-	const char *get_name() const override
-	{
-		return MavlinkStreamCollision::get_name_static();
-	}
+	static MavlinkStream *new_instance(Mavlink *mavlink) { return new MavlinkStreamCollision(mavlink); }
 
-	static constexpr const char *get_name_static()
-	{
-		return "COLLISION";
-	}
+	static constexpr const char *get_name_static() { return "COLLISION"; }
+	static constexpr uint16_t get_id_static() { return MAVLINK_MSG_ID_COLLISION; }
 
-	static constexpr uint16_t get_id_static()
-	{
-		return MAVLINK_MSG_ID_COLLISION;
-	}
-
-	uint16_t get_id() override
-	{
-		return get_id_static();
-	}
-
-	static MavlinkStream *new_instance(Mavlink *mavlink)
-	{
-		return new MavlinkStreamCollision(mavlink);
-	}
+	const char *get_name() const override { return get_name_static(); }
+	uint16_t get_id() override { return get_id_static(); }
 
 	unsigned get_size() override
 	{
@@ -70,22 +53,16 @@ public:
 	}
 
 private:
+	explicit MavlinkStreamCollision(Mavlink *mavlink) : MavlinkStream(mavlink) {}
+
 	uORB::Subscription _collision_sub{ORB_ID(collision_report)};
-
-	/* do not allow top copying this class */
-	MavlinkStreamCollision(MavlinkStreamCollision &) = delete;
-	MavlinkStreamCollision &operator = (const MavlinkStreamCollision &) = delete;
-
-protected:
-	explicit MavlinkStreamCollision(Mavlink *mavlink) : MavlinkStream(mavlink)
-	{}
 
 	bool send() override
 	{
 		collision_report_s report;
 		bool sent = false;
 
-		while (_collision_sub.update(&report)) {
+		while ((_mavlink->get_free_tx_buf() >= get_size()) && _collision_sub.update(&report)) {
 			mavlink_collision_t msg = {};
 
 			msg.src = report.src;

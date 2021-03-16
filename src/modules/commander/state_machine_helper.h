@@ -96,6 +96,7 @@ enum class position_nav_loss_actions_t {
 };
 
 extern const char *const arming_state_names[];
+extern const char *const nav_state_names[];
 
 enum class arm_disarm_reason_t {
 	TRANSITION_TO_STANDBY = 0,
@@ -131,7 +132,8 @@ bool set_nav_state(vehicle_status_s *status, actuator_armed_s *armed, commander_
 		   const bool stay_in_failsafe, const vehicle_status_flags_s &status_flags, bool landed,
 		   const link_loss_actions_t rc_loss_act, const offboard_loss_actions_t offb_loss_act,
 		   const offboard_loss_rc_actions_t offb_loss_rc_act,
-		   const position_nav_loss_actions_t posctl_nav_loss_act);
+		   const position_nav_loss_actions_t posctl_nav_loss_act,
+		   const float param_com_rcl_act_t);
 
 /*
  * Checks the validty of position data against the requirements of the current navigation

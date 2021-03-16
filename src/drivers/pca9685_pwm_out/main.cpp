@@ -53,6 +53,7 @@
 #define PCA9685_DEFAULT_ADDRESS (0x40)
 
 using namespace drv_pca9685_pwm;
+using namespace time_literals;
 
 class PCA9685Wrapper : public cdev::CDev, public ModuleBase<PCA9685Wrapper>, public OutputModuleInterface
 {
@@ -112,7 +113,7 @@ protected:
 
 	PCA9685 *pca9685 = nullptr; // driver handle.
 
-	uORB::Subscription _parameter_update_sub{ORB_ID(parameter_update)}; // param handle
+	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
 
 	MixingOutput _mixing_output{PCA9685_PWM_CHANNEL_COUNT, *this, MixingOutput::SchedulingPolicy::Disabled, true};
 };
@@ -184,25 +185,25 @@ void PCA9685Wrapper::updatePWMParams()
 		default_pwm_fail = PWM_DEFAULT_MIN,
 		default_pwm_dis = PWM_MOTOR_OFF;
 
-	param_t param_h = param_find("PWM_MAX");
+	param_t param_h = param_find("PWM_MAIN_MAX");
 
 	if (param_h != PARAM_INVALID) {
 		param_get(param_h, &default_pwm_max);
 
 	} else {
-		PX4_DEBUG("PARAM_INVALID: %s", "PWM_MAX");
+		PX4_DEBUG("PARAM_INVALID: %s", "PWM_MAIN_MAX");
 	}
 
-	param_h = param_find("PWM_MIN");
+	param_h = param_find("PWM_MAIN_MIN");
 
 	if (param_h != PARAM_INVALID) {
 		param_get(param_h, &default_pwm_min);
 
 	} else {
-		PX4_DEBUG("PARAM_INVALID: %s", "PWM_MIN");
+		PX4_DEBUG("PARAM_INVALID: %s", "PWM_MAIN_MIN");
 	}
 
-	param_h = param_find("PWM_RATE");
+	param_h = param_find("PWM_MAIN_RATE");
 
 	if (param_h != PARAM_INVALID) {
 		int32_t pval = 0;
@@ -214,7 +215,7 @@ void PCA9685Wrapper::updatePWMParams()
 		}
 
 	} else {
-		PX4_DEBUG("PARAM_INVALID: %s", "PWM_RATE");
+		PX4_DEBUG("PARAM_INVALID: %s", "PWM_MAIN_RATE");
 	}
 
 	for (int i = 0; i < PCA9685_PWM_CHANNEL_COUNT; i++) {

@@ -123,6 +123,19 @@ void Gyroscope::SensorCorrectionsUpdate(bool force)
 	}
 }
 
+bool Gyroscope::set_offset(const Vector3f &offset)
+{
+	if (Vector3f(_offset - offset).longerThan(0.01f)) {
+		if (PX4_ISFINITE(offset(0)) && PX4_ISFINITE(offset(1)) && PX4_ISFINITE(offset(2))) {
+			_offset = offset;
+			_calibration_count++;
+			return true;
+		}
+	}
+
+	return false;
+}
+
 void Gyroscope::set_rotation(Rotation rotation)
 {
 	_rotation_enum = rotation;
@@ -183,19 +196,8 @@ void Gyroscope::ParametersUpdate()
 			_priority = new_priority;
 		}
 
-		bool calibration_changed = false;
-
 		// CAL_GYROx_OFF{X,Y,Z}
-		const Vector3f offset = GetCalibrationParamsVector3f(SensorString(), "OFF", _calibration_index);
-
-		if (Vector3f(_offset - offset).norm_squared() > 0.001f * 0.001f) {
-			calibration_changed = true;
-			_offset = offset;
-		}
-
-		if (calibration_changed) {
-			_calibration_count++;
-		}
+		set_offset(GetCalibrationParamsVector3f(SensorString(), "OFF", _calibration_index));
 
 	} else {
 		Reset();
@@ -204,8 +206,14 @@ void Gyroscope::ParametersUpdate()
 
 void Gyroscope::Reset()
 {
-	_rotation.setIdentity();
-	_rotation_enum = ROTATION_NONE;
+	if (_external) {
+		set_rotation(ROTATION_NONE);
+
+	} else {
+		// internal sensors follow board rotation
+		set_rotation(GetBoardRotation());
+	}
+
 	_offset.zero();
 	_thermal_offset.zero();
 

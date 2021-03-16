@@ -9,11 +9,10 @@ px4_add_board(
 	ROMFSROOT px4fmu_common
 	LINKER_PREFIX ocram
 #	UAVCAN_INTERFACES 2
-	CONSTRAINED_FLASH
 	SERIAL_PORTS
 		GPS1:/dev/ttyS1
-		TEL1:/dev/ttyS3
-		TEL2:/dev/ttyS2
+		TEL1:/dev/ttyS2
+		TEL2:/dev/ttyS3
 		GPS2:/dev/ttyS4
 
 	DRIVERS
@@ -25,16 +24,15 @@ px4_add_board(
 		distance_sensor # all available distance sensor drivers
 #		dshot not ported
 		gps
-		#imu/adis16448
+		#imu/analog_devices/adis16448
 		#imu/adis16477
 		#imu/adis16497
 		#imu # all available imu drivers
 		imu/bosch/bmi055
 		imu/invensense/icm20602
 		imu/invensense/icm20689
-		#imu/mpu6000 # legacy icm20602/icm20689 driver
-		irlock
-		lights/blinkm
+		#irlock
+		#lights/blinkm
 		lights/rgbled
 		lights/rgbled_ncp5623c
 		lights/rgbled_pwm
@@ -44,9 +42,8 @@ px4_add_board(
 		pwm_out_sim
 		pwm_out
 		rc_input
-		roboclaw
+		#roboclaw
 		safety_button
-		tap_esc
 		telemetry # all available telemetry drivers
 		tone_alarm
 #		uavcan
@@ -58,6 +55,9 @@ px4_add_board(
 		dataman
 		ekf2
 		events
+		flight_mode_manager
+		#gyro_calibration
+		#gyro_fft
 		land_detector
 		landing_target_estimator
 		load_mon
@@ -73,7 +73,7 @@ px4_add_board(
 		sensors
 		sih
 		temperature_compensation
-		vmount
+		#vmount
 	SYSTEMCMDS
 #		bl_update
 		dmesg
@@ -85,6 +85,7 @@ px4_add_board(
 		mixer
 		motor_ramp
 		motor_test
+		mft
 		mtd
 		nshterm
 		param
@@ -97,6 +98,7 @@ px4_add_board(
 		top
 		topic_listener
 		tune_control
+		uorb
 		usb_connected
 		ver
 		work_queue
