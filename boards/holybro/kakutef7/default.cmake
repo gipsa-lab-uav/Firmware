@@ -18,24 +18,24 @@ px4_add_board(
 	DRIVERS
 		adc
 		barometer/bmp280
-		dshot
+		#dshot
 		gps
-		imu/invensense/icm20689
+		#imu/invensense/icm20689
 		imu/invensense/mpu6000
-		magnetometer
-		optical_flow/px4flow
-		osd
-		pwm_out_sim
+		#magnetometer
+		#optical_flow/px4flow
+		#osd
+		#pwm_out_sim
 		pwm_out
 		rc_input
-		telemetry
+		telemetry/frsky_telemetry
 		tone_alarm
 	MODULES
 		attitude_estimator_q
 		battery_status
 		commander
 		dataman
-		#ekf2
+		ekf2
 		events
 		land_detector
 		load_mon
@@ -51,27 +51,29 @@ px4_add_board(
 		sensors
 		#temperature_compensation
 	SYSTEMCMDS
-		bl_update
+		#bl_update
 		dmesg
-		dumpfile
-		esc_calib
+		#dumpfile
+		#esc_calib
 		hardfault_log
-		i2cdetect
-		led_control
+		#i2cdetect
+		#led_control
 		mixer
 		#motor_ramp
-		motor_test
+		#motor_test
 		nshterm
 		param
-		perf
+		#perf
 		pwm
 		reboot
-		reflect
-		sd_bench
+		#reflect
+		#sd_bench
 		top
-		topic_listener
-		tune_control
-		usb_connected
+		#topic_listener
+		#tune_control
+		#usb_connected
 		ver
 		work_queue
+	EXAMPLES
+		mocap_mag
 	)

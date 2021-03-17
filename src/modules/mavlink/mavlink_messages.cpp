@@ -2704,6 +2704,79 @@ protected:
 	}
 };
 
+class MavlinkStreamLocalPositionNEDCov : public MavlinkStream
+{
+public:
+	const char *get_name() const override
+	{
+		return MavlinkStreamLocalPositionNEDCov::get_name_static();
+	}
+
+	static constexpr const char *get_name_static()
+	{
+		return "LOCAL_POSITION_NED_COV";
+	}
+
+	static constexpr uint16_t get_id_static()
+	{
+		return MAVLINK_MSG_ID_LOCAL_POSITION_NED_COV;
+	}
+
+	uint16_t get_id() override
+	{
+		return get_id_static();
+	}
+
+	static MavlinkStream *new_instance(Mavlink *mavlink)
+	{
+		return new MavlinkStreamLocalPositionNEDCov(mavlink);
+	}
+
+	unsigned get_size() override
+	{
+		return _lpos_sub.advertised() ? MAVLINK_MSG_ID_LOCAL_POSITION_NED_COV_LEN + MAVLINK_NUM_NON_PAYLOAD_BYTES : 0;
+	}
+
+private:
+	uORB::Subscription _lpos_sub{ORB_ID(vehicle_local_position)};
+
+	/* do not allow top copying this class */
+	MavlinkStreamLocalPositionNEDCov(MavlinkStreamLocalPositionNEDCov &) = delete;
+	MavlinkStreamLocalPositionNEDCov &operator = (const MavlinkStreamLocalPositionNEDCov &) = delete;
+
+protected:
+	explicit MavlinkStreamLocalPositionNEDCov(Mavlink *mavlink) : MavlinkStream(mavlink)
+	{}
+
+	bool send(const hrt_abstime t) override
+	{
+		vehicle_local_position_s lpos;
+
+		if (_lpos_sub.update(&lpos)) {
+			mavlink_local_position_ned_cov_t msg{};
+
+			msg.time_usec = lpos.timestamp;
+			msg.x = lpos.x;
+			msg.y = lpos.y;
+			msg.z = lpos.z;
+			msg.vx = lpos.vx;
+			msg.vy = lpos.vy;
+			msg.vz = lpos.vz;
+			msg.ax = lpos.ax;
+			msg.ay = lpos.ay;
+			msg.az = lpos.az;
+			msg.covariance[0] = NAN;
+
+			mavlink_msg_local_position_ned_cov_send_struct(_mavlink->get_channel(), &msg);
+
+			return true;
+		}
+
+		return false;
+	}
+};
+
+
 class MavlinkStreamEstimatorStatus : public MavlinkStream
 {
 public:
@@ -5265,6 +5338,7 @@ static const StreamListItem streams_list[] = {
 	create_stream_list_item<MavlinkStreamTimesync>(),
 	create_stream_list_item<MavlinkStreamGlobalPositionInt>(),
 	create_stream_list_item<MavlinkStreamLocalPositionNED>(),
+	create_stream_list_item<MavlinkStreamLocalPositionNEDCov>(),
 	create_stream_list_item<MavlinkStreamOdometry>(),
 	create_stream_list_item<MavlinkStreamEstimatorStatus>(),
 	create_stream_list_item<MavlinkStreamVibration>(),
