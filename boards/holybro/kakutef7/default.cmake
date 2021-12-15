@@ -8,6 +8,8 @@ px4_add_board(
 	ARCHITECTURE cortex-m7
 	EXTERNAL_METADATA
 	ROMFSROOT px4fmu_common
+	CONSTRAINED_FLASH
+	CONSTRAINED_MEMORY
 	SERIAL_PORTS
 		TEL1:/dev/ttyS0 # UART1
 		TEL2:/dev/ttyS1 # UART2
@@ -33,17 +35,17 @@ px4_add_board(
 		telemetry/frsky_telemetry
 		tone_alarm
 	MODULES
-		attitude_estimator_q
+		#attitude_estimator_q
 		battery_status
 		commander
 		dataman
-		#ekf2
+		ekf2
 		events
 		flight_mode_manager
 		gyro_calibration
 		#gyro_fft
 		land_detector
-		load_mon
+		#load_mon
 		#local_position_estimator
 		logger
 		mavlink
@@ -75,9 +77,11 @@ px4_add_board(
 		#sd_bench
 		top
 		#topic_listener
-		#tune_control
+		tune_control
 		#uorb
 		#usb_connected
 		ver
 		work_queue
+	EXAMPLES
+		mocap_mag
 	)
