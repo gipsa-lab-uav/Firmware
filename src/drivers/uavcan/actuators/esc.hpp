@@ -46,6 +46,7 @@
 
 #include <uavcan/uavcan.hpp>
 #include <uavcan/equipment/esc/RawCommand.hpp>
+#include <uavcan/equipment/esc/RPMCommand.hpp>
 #include <uavcan/equipment/esc/Status.hpp>
 #include <lib/perf/perf_counter.h>
 #include <uORB/PublicationMulti.hpp>
@@ -53,6 +54,7 @@
 #include <uORB/topics/esc_status.h>
 #include <drivers/drv_hrt.h>
 #include <lib/mixer_module/mixer_module.hpp>
+#include <px4_platform_common/param.h>
 
 class UavcanEscController
 {
@@ -109,10 +111,15 @@ private:
 	uavcan::MonotonicTime							_prev_cmd_pub;   ///< rate limiting
 	uavcan::INode								&_node;
 	uavcan::Publisher<uavcan::equipment::esc::RawCommand>			_uavcan_pub_raw_cmd;
+	uavcan::Publisher<uavcan::equipment::esc::RPMCommand>			_uavcan_pub_rpm_cmd;
 	uavcan::Subscriber<uavcan::equipment::esc::Status, StatusCbBinder>	_uavcan_sub_status;
 
 	/*
 	 * ESC states
 	 */
 	uint8_t				_max_number_of_nonzero_outputs{0};
+
+        int32_t _mode;
+        float _rpm_ratio;
+
 };
