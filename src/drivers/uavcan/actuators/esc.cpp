@@ -141,7 +141,7 @@ UavcanEscController::update_outputs(bool stop_motors, uint16_t outputs[MAX_ACTUA
 		  if (stop_motors || outputs[i] == DISARMED_OUTPUT_VALUE) {
 			msg.rpm.push_back(static_cast<unsigned>(0));    
 		  } else {
-			msg.rpm.push_back(math::max(1000,static_cast<int>(_rpm_ratio*outputs[i])));
+			msg.rpm.push_back(math::max(4000,static_cast<int>(_rpm_ratio*outputs[i])));
 		  }
 	    }
 	    /*
