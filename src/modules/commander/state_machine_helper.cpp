@@ -59,6 +59,7 @@ static constexpr const char reason_no_local_position[] = "no local position";
 static constexpr const char reason_no_global_position[] = "no global position";
 static constexpr const char reason_no_datalink[] = "no datalink";
 static constexpr const char reason_no_rc_and_no_datalink[] = "no RC and no datalink";
+static constexpr const char reason_no_gps[] = "no GPS";
 
 // This array defines the arming state transitions. The rows are the new state, and the columns
 // are the current state. Using new state and current state you can index into the array which
@@ -368,6 +369,13 @@ main_state_transition(const vehicle_status_s &status, const main_state_t new_mai
 
 		break;
 
+	case commander_state_s::MAIN_STATE_AUTO_VTOL_TAKEOFF:
+		if (status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_ROTARY_WING) {
+			ret = TRANSITION_CHANGED;
+		}
+
+		break;
+
 	case commander_state_s::MAIN_STATE_AUTO_MISSION:
 
 		/* need global position, home position, and a valid mission */
@@ -469,6 +477,8 @@ static void enable_failsafe(vehicle_status_s &status, bool old_failsafe, orb_adv
 		case event_failsafe_reason_t::no_datalink: reason = reason_no_datalink; break;
 
 		case event_failsafe_reason_t::no_rc_and_no_datalink: reason = reason_no_rc_and_no_datalink; break;
+
+		case event_failsafe_reason_t::no_gps: reason = reason_no_gps; break;
 		}
 
 		mavlink_log_critical(mavlink_log_pub, "Failsafe enabled: %s\t", reason);
@@ -735,6 +745,7 @@ bool set_nav_state(vehicle_status_s &status, actuator_armed_s &armed, commander_
 		break;
 
 	case commander_state_s::MAIN_STATE_AUTO_TAKEOFF:
+	case commander_state_s::MAIN_STATE_AUTO_VTOL_TAKEOFF:
 
 		/* require local position */
 
@@ -769,7 +780,8 @@ bool set_nav_state(vehicle_status_s &status, actuator_armed_s &armed, commander_
 			set_link_loss_nav_state(status, armed, status_flags, internal_state, rc_loss_act, 0);
 
 		} else {
-			status.nav_state = vehicle_status_s::NAVIGATION_STATE_AUTO_TAKEOFF;
+			status.nav_state = internal_state.main_state == commander_state_s::MAIN_STATE_AUTO_TAKEOFF ?
+					   vehicle_status_s::NAVIGATION_STATE_AUTO_TAKEOFF : vehicle_status_s::NAVIGATION_STATE_AUTO_VTOL_TAKEOFF;
 		}
 
 		break;
