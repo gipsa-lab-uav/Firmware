@@ -63,8 +63,11 @@ UavcanEscController::init()
 	
 	if(_mode == 1)
 	{
-		_rpm_ratio = 1.f;
-		param_get(param_find("UAVCAN_ESC_RPM_R"), &_rpm_ratio);
+		_rpm_min = 4000;
+		_rpm_max = 13106;
+		param_get(param_find("UAVCAN_ESC_RMIN"), &_rpm_min);
+		param_get(param_find("UAVCAN_ESC_RMAX"), &_rpm_max);
+
 	}
 	
 	// ESC status subscription
@@ -141,7 +144,7 @@ UavcanEscController::update_outputs(bool stop_motors, uint16_t outputs[MAX_ACTUA
 		  if (stop_motors || outputs[i] == DISARMED_OUTPUT_VALUE) {
 			msg.rpm.push_back(static_cast<unsigned>(0));    
 		  } else {
-			msg.rpm.push_back(math::max(4000,static_cast<int>(_rpm_ratio*outputs[i])));
+		      msg.rpm.push_back(math::max(_rpm_min,static_cast<int32_t>(outputs[i]*(((float)_rpm_max)/max_output_value()))));
 		  }
 	    }
 	    /*

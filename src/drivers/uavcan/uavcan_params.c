@@ -345,11 +345,21 @@ PARAM_DEFINE_INT32(UAVCAN_SUB_RNG, 0);
 PARAM_DEFINE_INT32(UAVCAN_ESC_MODE, 0);
 
 /**
- * UAVCAN ESC RPM RATIO
+ * UAVCAN ESC RPM MIN
  *
  * @reboot_required true
- * @decimal 2
+ * @min 1000
  * @group UAVCAN
  */
-PARAM_DEFINE_FLOAT(UAVCAN_ESC_RPM_R, 1.0f);
+PARAM_DEFINE_INT32(UAVCAN_ESC_RMIN, 4000);
+
+/**
+ * UAVCAN ESC RPM MAX
+ *
+ * @reboot_required true
+ * @min 1000
+ * @group UAVCAN
+ */
+PARAM_DEFINE_INT32(UAVCAN_ESC_RMAX, 13106);
+
 

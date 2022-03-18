@@ -120,6 +120,6 @@ private:
 	uint8_t				_max_number_of_nonzero_outputs{0};
 
         int32_t _mode;
-        float _rpm_ratio;
+        int32_t _rpm_min, _rpm_max;
 
 };
