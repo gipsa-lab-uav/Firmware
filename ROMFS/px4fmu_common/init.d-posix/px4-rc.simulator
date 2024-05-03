@@ -78,6 +78,9 @@ elif [ "$PX4_SIMULATOR" = "gz" ] || [ "$(param show -q SIM_GZ_EN)" -eq "1" ]; th
 		PX4_GZ_WORLD=${gz_world}
 	fi
 
+	# wait for the simulated model to be loaded
+	sleep 15
+
 	# start gz_bridge
 	if [ -n "${PX4_GZ_MODEL}" ] && [ -z "${PX4_GZ_MODEL_NAME}" ]; then
 		# model specified, gz_bridge will spawn model

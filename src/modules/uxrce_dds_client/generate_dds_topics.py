@@ -102,6 +102,10 @@ for p in msg_map['publications']:
     # topic_simple: eg vehicle_status
     p['topic_simple'] = p['topic'].split('/')[-1]
 
+    if 'interval_us' in p:
+        p['interval_us'] = int(p['interval_us'])
+    else:
+        p['interval_us'] = 0
 
 merged_em_globals['publications'] = msg_map['publications']
 

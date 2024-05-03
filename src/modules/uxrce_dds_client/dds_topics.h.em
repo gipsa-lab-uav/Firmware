@@ -21,7 +21,7 @@ import os
 #include <uxr/client/client.h>
 #include <ucdr/microcdr.h>
 
-#include <uORB/Subscription.hpp>
+#include <uORB/SubscriptionInterval.hpp>
 #include <uORB/Publication.hpp>
 @[for include in type_includes]@
 #include <uORB/ucdr/@(include).h>
@@ -30,7 +30,7 @@ import os
 // Subscribers for messages to send
 struct SendTopicsSubs {
 @[    for pub in publications]@
-	uORB::Subscription @(pub['topic_simple'])_sub{ORB_ID(@(pub['topic_simple']))};
+	uORB::SubscriptionInterval @(pub['topic_simple'])_sub{ORB_ID(@(pub['topic_simple'])), @(pub['interval_us'])};
 	uxrObjectId @(pub['topic_simple'])_data_writer{};
 @[    end for]@
 
