@@ -44,6 +44,7 @@ struct SendSubscription {
 	uxrObjectId data_writer;
 	const char* dds_type_name;
 	const char* topic;
+	uint32_t interval;
 	uint32_t topic_size;
 	UcdrSerializeMethod ucdr_serialize_method;
 };
@@ -56,6 +57,7 @@ struct SendTopicsSubs {
 			  uxr_object_id(0, UXR_INVALID_ID),
 			  "@(pub['dds_type'])",
 			  "@(pub['topic'])",
+			  @(pub['interval']),
 			  ucdr_topic_size_@(pub['simple_base_type'])(),
 			  &ucdr_serialize_@(pub['simple_base_type']),
 			},
@@ -75,7 +77,8 @@ void SendTopicsSubs::init() {
 	for (unsigned idx = 0; idx < sizeof(send_subscriptions)/sizeof(send_subscriptions[0]); ++idx) {
 		fds[idx].fd = orb_subscribe(send_subscriptions[idx].orb_meta);
 		fds[idx].events = POLLIN;
-		orb_set_interval(fds[idx].fd, UXRCE_DEFAULT_POLL_RATE);
+		//orb_set_interval(fds[idx].fd, UXRCE_DEFAULT_POLL_RATE);
+		orb_set_interval(fds[idx].fd, send_subscriptions[idx].interval);
 	}
 }
 
