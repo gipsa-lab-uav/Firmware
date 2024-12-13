@@ -80,6 +80,9 @@ FixedwingPositionControl::FixedwingPositionControl(bool vtol) :
 	_roll_slew_rate.setSlewRate(radians(_param_fw_pn_r_slew_max.get()));
 	_roll_slew_rate.setForcedValue(0.f);
 
+	_tecs_alt_time_const_slew_rate.setSlewRate(TECS_ALT_TIME_CONST_SLEW_RATE);
+	_tecs_alt_time_const_slew_rate.setForcedValue(_param_fw_t_h_error_tc.get() * _param_fw_thrtc_sc.get());
+
 }
 
 FixedwingPositionControl::~FixedwingPositionControl()
@@ -419,6 +422,7 @@ FixedwingPositionControl::tecs_status_publish(float alt_sp, float equivalent_air
 
 	tecs_status.altitude_sp = alt_sp;
 	tecs_status.altitude_reference = debug_output.altitude_reference;
+	tecs_status.altitude_time_constant = _tecs.get_altitude_error_time_constant();
 	tecs_status.height_rate_reference = debug_output.height_rate_reference;
 	tecs_status.height_rate_direct = debug_output.height_rate_direct;
 	tecs_status.height_rate_setpoint = debug_output.control.altitude_rate_control;
@@ -686,6 +690,7 @@ FixedwingPositionControl::set_control_mode_current(const hrt_abstime &now)
 	FW_POSCTRL_MODE commanded_position_control_mode = _control_mode_current;
 
 	_skipping_takeoff_detection = false;
+	const bool doing_backtransition = _vehicle_status.in_transition_mode && !_vehicle_status.in_transition_to_fw;
 
 	if (_control_mode.flag_control_offboard_enabled && _position_setpoint_current_valid
 	    && _control_mode.flag_control_position_enabled) {
@@ -707,7 +712,6 @@ FixedwingPositionControl::set_control_mode_current(const hrt_abstime &now)
 
 		// Enter this mode only if the current waypoint has valid 3D position setpoints or is of type IDLE.
 		// A setpoint of type IDLE can be published by Navigator without a valid position, and is handled here in FW_POSCTRL_MODE_AUTO.
-		const bool doing_backtransition = _vehicle_status.in_transition_mode && !_vehicle_status.in_transition_to_fw;
 
 		if (doing_backtransition) {
 			_control_mode_current = FW_POSCTRL_MODE_TRANSITON;
@@ -760,8 +764,12 @@ FixedwingPositionControl::set_control_mode_current(const hrt_abstime &now)
 			_time_in_fixed_bank_loiter = now;
 		}
 
-		if (hrt_elapsed_time(&_time_in_fixed_bank_loiter) < (_param_nav_gpsf_lt.get() * 1_s)
-		    && !_vehicle_status.in_transition_mode) {
+		if (doing_backtransition) {
+			// we handle loss of position control during backtransition as a special case
+			_control_mode_current = FW_POSCTRL_MODE_TRANSITON;
+
+		} else if (hrt_elapsed_time(&_time_in_fixed_bank_loiter) < (_param_nav_gpsf_lt.get() * 1_s)
+			   && !_vehicle_status.in_transition_mode) {
 			if (commanded_position_control_mode != FW_POSCTRL_MODE_AUTO_ALTITUDE) {
 				// Need to init because last loop iteration was in a different mode
 				events::send(events::ID("fixedwing_position_control_fb_loiter"), events::Log::Critical,
@@ -940,8 +948,9 @@ FixedwingPositionControl::control_auto(const float control_interval, const Vecto
 void
 FixedwingPositionControl::control_auto_fixed_bank_alt_hold(const float control_interval)
 {
-	// only control altitude and airspeed ("fixed-bank loiter")
+	const bool is_low_height = checkLowHeightConditions();
 
+	// only control altitude and airspeed ("fixed-bank loiter")
 	tecs_update_pitch_throttle(control_interval,
 				   _current_altitude,
 				   _performance_model.getCalibratedTrimAirspeed(),
@@ -950,12 +959,15 @@ FixedwingPositionControl::control_auto_fixed_bank_alt_hold(const float control_i
 				   _param_fw_thr_min.get(),
 				   _param_fw_thr_max.get(),
 				   _param_sinkrate_target.get(),
-				   _param_climbrate_target.get());
+				   _param_climbrate_target.get(),
+				   is_low_height);
 
 	const float roll_body = math::radians(_param_nav_gpsf_r.get()); // open loop loiter bank angle
 	const float yaw_body = 0.f;
 
-	if (_landed) {
+	// Special case: if z or vz estimate is invalid we cannot control height anymore. To prevent a
+	// "climb-away" we set the thrust to MIN in that case.
+	if (_landed || !_local_pos.z_valid || !_local_pos.v_z_valid) {
 		_att_sp.thrust_body[0] = _param_fw_thr_min.get();
 
 	} else {
@@ -976,6 +988,8 @@ FixedwingPositionControl::control_auto_descend(const float control_interval)
 	const float descend_rate = -0.5f;
 	const bool disable_underspeed_handling = false;
 
+	const bool is_low_height = checkLowHeightConditions();
+
 	tecs_update_pitch_throttle(control_interval,
 				   _current_altitude,
 				   _performance_model.getCalibratedTrimAirspeed(),
@@ -985,13 +999,18 @@ FixedwingPositionControl::control_auto_descend(const float control_interval)
 				   _param_fw_thr_max.get(),
 				   _param_sinkrate_target.get(),
 				   _param_climbrate_target.get(),
+				   is_low_height,
 				   disable_underspeed_handling,
 				   descend_rate);
 
 	const float roll_body = math::radians(_param_nav_gpsf_r.get()); // open loop loiter bank angle
 	const float yaw_body = 0.f;
 
-	_att_sp.thrust_body[0] = (_landed) ? _param_fw_thr_min.get() : min(get_tecs_thrust(), _param_fw_thr_max.get());
+	// Special case: if vz estimate is invalid we cannot control height rate anymore. To prevent a
+	// "climb-away" we set the thrust to MIN in that case.
+	_att_sp.thrust_body[0] = (_landed
+				  || !_local_pos.v_z_valid) ? _param_fw_thr_min.get() : min(get_tecs_thrust(), _param_fw_thr_max.get());
+
 	const float pitch_body = get_tecs_pitch();
 	const Quatf attitude_setpoint(Eulerf(roll_body, pitch_body, yaw_body));
 	attitude_setpoint.copyTo(_att_sp.q_d);
@@ -1125,6 +1144,8 @@ FixedwingPositionControl::control_auto_position(const float control_interval, co
 
 	float yaw_body = _yaw; // yaw is not controlled, so set setpoint to current yaw
 
+	const bool is_low_height = checkLowHeightConditions();
+
 	tecs_update_pitch_throttle(control_interval,
 				   position_sp_alt,
 				   target_airspeed,
@@ -1133,7 +1154,9 @@ FixedwingPositionControl::control_auto_position(const float control_interval, co
 				   tecs_fw_thr_min,
 				   tecs_fw_thr_max,
 				   _param_sinkrate_target.get(),
-				   _param_climbrate_target.get());
+				   _param_climbrate_target.get(),
+				   is_low_height);
+
 	const float pitch_body = get_tecs_pitch();
 	const Quatf attitude_setpoint(Eulerf(roll_body, pitch_body, yaw_body));
 	attitude_setpoint.copyTo(_att_sp.q_d);
@@ -1178,6 +1201,8 @@ FixedwingPositionControl::control_auto_velocity(const float control_interval, co
 	float yaw_body = _yaw;
 	const bool disable_underspeed_handling = false;
 
+	const bool is_low_height = checkLowHeightConditions();
+
 	tecs_update_pitch_throttle(control_interval,
 				   position_sp_alt,
 				   target_airspeed,
@@ -1187,6 +1212,7 @@ FixedwingPositionControl::control_auto_velocity(const float control_interval, co
 				   tecs_fw_thr_max,
 				   _param_sinkrate_target.get(),
 				   _param_climbrate_target.get(),
+				   is_low_height,
 				   disable_underspeed_handling,
 				   pos_sp_curr.vz);
 	const float pitch_body = get_tecs_pitch();
@@ -1200,6 +1226,7 @@ FixedwingPositionControl::control_auto_loiter(const float control_interval, cons
 		const Vector2f &ground_speed, const position_setpoint_s &pos_sp_prev, const position_setpoint_s &pos_sp_curr,
 		const position_setpoint_s &pos_sp_next)
 {
+
 	Vector2d curr_wp{0, 0};
 	Vector2d prev_wp{0, 0};
 
@@ -1248,6 +1275,8 @@ FixedwingPositionControl::control_auto_loiter(const float control_interval, cons
 	Vector2f curr_wp_local{_global_local_proj_ref.project(curr_wp(0), curr_wp(1))};
 	Vector2f vehicle_to_loiter_center{curr_wp_local - curr_pos_local};
 
+	bool is_low_height = checkLowHeightConditions();
+
 	const bool close_to_circle = vehicle_to_loiter_center.norm() < loiter_radius + _npfg.switchDistance(500);
 
 	if (pos_sp_next.type == position_setpoint_s::SETPOINT_TYPE_LAND && _position_setpoint_next_valid
@@ -1255,7 +1284,10 @@ FixedwingPositionControl::control_auto_loiter(const float control_interval, cons
 		// We're in a loiter directly before a landing WP. Enable our landing configuration (flaps,
 		// landing airspeed and potentially tighter altitude control) already such that we don't
 		// have to do this switch (which can cause significant altitude errors) close to the ground.
-		_tecs.set_altitude_error_time_constant(_param_fw_thrtc_sc.get() * _param_fw_t_h_error_tc.get());
+
+		// Just before landing, enforce low-height flight conditions for tighter altitude control
+		is_low_height = true;
+
 		airspeed_sp = (_param_fw_lnd_airspd.get() > FLT_EPSILON) ? _param_fw_lnd_airspd.get() :
 			      _performance_model.getMinimumCalibratedAirspeed(getLoadFactor());
 		_flaps_setpoint = _param_fw_flaps_lnd_scl.get();
@@ -1289,7 +1321,7 @@ FixedwingPositionControl::control_auto_loiter(const float control_interval, cons
 			roll_body = 0.0f;
 		}
 
-		_tecs.set_altitude_error_time_constant(_param_fw_thrtc_sc.get() * _param_fw_t_h_error_tc.get());
+		is_low_height = true; // In low-height flight, TECS will control altitude tighter
 	}
 
 	tecs_update_pitch_throttle(control_interval,
@@ -1300,7 +1332,8 @@ FixedwingPositionControl::control_auto_loiter(const float control_interval, cons
 				   tecs_fw_thr_min,
 				   tecs_fw_thr_max,
 				   _param_sinkrate_target.get(),
-				   _param_climbrate_target.get());
+				   _param_climbrate_target.get(),
+				   is_low_height);
 
 	const float pitch_body = get_tecs_pitch();
 
@@ -1350,6 +1383,8 @@ FixedwingPositionControl::controlAutoFigureEight(const float control_interval, c
 		tecs_fw_thr_max = _param_fw_thr_max.get();
 	}
 
+	const bool is_low_height = checkLowHeightConditions();
+
 	tecs_update_pitch_throttle(control_interval,
 				   pos_sp_curr.alt,
 				   target_airspeed,
@@ -1358,7 +1393,8 @@ FixedwingPositionControl::controlAutoFigureEight(const float control_interval, c
 				   tecs_fw_thr_min,
 				   tecs_fw_thr_max,
 				   _param_sinkrate_target.get(),
-				   _param_climbrate_target.get());
+				   _param_climbrate_target.get(),
+				   is_low_height);
 
 	// Yaw
 	float yaw_body = _yaw; // yaw is not controlled, so set setpoint to current yaw
@@ -1388,7 +1424,6 @@ void
 FixedwingPositionControl::control_auto_path(const float control_interval, const Vector2d &curr_pos,
 		const Vector2f &ground_speed, const position_setpoint_s &pos_sp_curr)
 {
-
 	float tecs_fw_thr_min;
 	float tecs_fw_thr_max;
 
@@ -1425,6 +1460,8 @@ FixedwingPositionControl::control_auto_path(const float control_interval, const 
 
 	float yaw_body = _yaw; // yaw is not controlled, so set setpoint to current yaw
 
+	const bool is_low_height = checkLowHeightConditions();
+
 	tecs_update_pitch_throttle(control_interval,
 				   pos_sp_curr.alt,
 				   target_airspeed,
@@ -1433,7 +1470,8 @@ FixedwingPositionControl::control_auto_path(const float control_interval, const 
 				   tecs_fw_thr_min,
 				   tecs_fw_thr_max,
 				   _param_sinkrate_target.get(),
-				   _param_climbrate_target.get());
+				   _param_climbrate_target.get(),
+				   is_low_height);
 
 	_att_sp.thrust_body[0] = min(get_tecs_thrust(), tecs_fw_thr_max);
 	const float pitch_body = get_tecs_pitch();
@@ -1470,6 +1508,8 @@ FixedwingPositionControl::control_auto_takeoff(const hrt_abstime &now, const flo
 		_tecs.set_equivalent_airspeed_min(takeoff_airspeed);
 		adjusted_min_airspeed = takeoff_airspeed;
 	}
+
+	const bool is_low_height = checkLowHeightConditions();
 
 	if (_runway_takeoff.runwayTakeoffEnabled()) {
 		if (!_runway_takeoff.isInitialized()) {
@@ -1559,6 +1599,7 @@ FixedwingPositionControl::control_auto_takeoff(const hrt_abstime &now, const flo
 					   _param_fw_thr_max.get(),
 					   _param_sinkrate_target.get(),
 					   _performance_model.getMaximumClimbRate(_air_density),
+					   is_low_height,
 					   disable_underspeed_handling);
 
 		_tecs.set_equivalent_airspeed_min(_performance_model.getMinimumCalibratedAirspeed()); // reset after TECS calculation
@@ -1646,6 +1687,7 @@ FixedwingPositionControl::control_auto_takeoff(const hrt_abstime &now, const flo
 						   max_takeoff_throttle,
 						   _param_sinkrate_target.get(),
 						   _performance_model.getMaximumClimbRate(_air_density),
+						   is_low_height,
 						   disable_underspeed_handling);
 
 			if (_launchDetector.getLaunchDetected() < launch_detection_status_s::STATE_FLYING) {
@@ -1709,8 +1751,7 @@ FixedwingPositionControl::control_auto_landing_straight(const hrt_abstime &now, 
 
 	float target_airspeed = adapt_airspeed_setpoint(control_interval, airspeed_land, adjusted_min_airspeed,
 				ground_speed);
-	// Enable tighter altitude control for landings
-	_tecs.set_altitude_error_time_constant(_param_fw_thrtc_sc.get() * _param_fw_t_h_error_tc.get());
+
 
 	// now handle position
 	const Vector2f local_position{_local_pos.x, _local_pos.y};
@@ -1757,6 +1798,9 @@ FixedwingPositionControl::control_auto_landing_straight(const hrt_abstime &now, 
 
 	// flare at the maximum of the altitude determined by the time before touchdown and a minimum flare altitude
 	const float flare_rel_alt = math::max(_param_fw_lnd_fl_time.get() * _local_pos.vz, _param_fw_lnd_flalt.get());
+
+	// During landing, enforce low-height flight conditions for tighter altitude control
+	const bool is_low_height = true;
 
 	// the terrain estimate (if enabled) is always used to determine the flaring altitude
 	if ((_current_altitude < terrain_alt + flare_rel_alt) || _flare_states.flaring) {
@@ -1834,6 +1878,7 @@ FixedwingPositionControl::control_auto_landing_straight(const hrt_abstime &now, 
 					   throttle_max,
 					   _param_sinkrate_target.get(),
 					   _param_climbrate_target.get(),
+					   is_low_height,
 					   disable_underspeed_handling,
 					   height_rate_setpoint);
 
@@ -1894,7 +1939,8 @@ FixedwingPositionControl::control_auto_landing_straight(const hrt_abstime &now, 
 					   _param_fw_thr_min.get(),
 					   _param_fw_thr_max.get(),
 					   desired_max_sinkrate,
-					   _param_climbrate_target.get());
+					   _param_climbrate_target.get(),
+					   is_low_height);
 
 		/* set the attitude and throttle commands */
 
@@ -1947,8 +1993,6 @@ FixedwingPositionControl::control_auto_landing_circular(const hrt_abstime &now, 
 	float target_airspeed = adapt_airspeed_setpoint(control_interval, airspeed_land, adjusted_min_airspeed,
 				ground_speed);
 
-	// Enable tighter altitude control for landings
-	_tecs.set_altitude_error_time_constant(_param_fw_thrtc_sc.get() * _param_fw_t_h_error_tc.get());
 
 	const Vector2f local_position{_local_pos.x, _local_pos.y};
 	Vector2f local_landing_orbit_center = _global_local_proj_ref.project(pos_sp_curr.lat, pos_sp_curr.lon);
@@ -1971,6 +2015,9 @@ FixedwingPositionControl::control_auto_landing_circular(const hrt_abstime &now, 
 	if (fabsf(pos_sp_curr.loiter_radius) < FLT_EPSILON) {
 		loiter_radius = _param_nav_loiter_rad.get();
 	}
+
+	// During landing, enforce low-height flight conditions for tighter altitude control
+	const bool is_low_height = true;
 
 	// the terrain estimate (if enabled) is always used to determine the flaring altitude
 	float roll_body;
@@ -2051,6 +2098,7 @@ FixedwingPositionControl::control_auto_landing_circular(const hrt_abstime &now, 
 					   throttle_max,
 					   _param_sinkrate_target.get(),
 					   _param_climbrate_target.get(),
+					   is_low_height,
 					   disable_underspeed_handling,
 					   height_rate_setpoint);
 
@@ -2108,6 +2156,7 @@ FixedwingPositionControl::control_auto_landing_circular(const hrt_abstime &now, 
 					   _param_fw_thr_max.get(),
 					   desired_max_sinkrate,
 					   _param_climbrate_target.get(),
+					   is_low_height,
 					   disable_underspeed_handling,
 					   -glide_slope_sink_rate); // heightrate = -sinkrate
 
@@ -2165,6 +2214,9 @@ FixedwingPositionControl::control_manual_altitude(const float control_interval, 
 		throttle_max = 0.0f;
 	}
 
+
+	const bool is_low_height = checkLowHeightConditions();
+
 	const bool disable_underspeed_handling = false;
 
 	tecs_update_pitch_throttle(control_interval,
@@ -2176,6 +2228,7 @@ FixedwingPositionControl::control_manual_altitude(const float control_interval, 
 				   throttle_max,
 				   _param_sinkrate_target.get(),
 				   _param_climbrate_target.get(),
+				   is_low_height,
 				   disable_underspeed_handling,
 				   height_rate_sp);
 
@@ -2267,7 +2320,10 @@ FixedwingPositionControl::control_manual_position(const float control_interval, 
 		}
 	}
 
+	const bool is_low_height = checkLowHeightConditions();
+
 	const bool disable_underspeed_handling = false;
+
 
 	tecs_update_pitch_throttle(control_interval,
 				   _current_altitude, // TODO: check if this is really what we want.. or if we want to lock the altitude.
@@ -2278,6 +2334,7 @@ FixedwingPositionControl::control_manual_position(const float control_interval, 
 				   throttle_max,
 				   _param_sinkrate_target.get(),
 				   _param_climbrate_target.get(),
+				   is_low_height,
 				   disable_underspeed_handling,
 				   height_rate_sp);
 
@@ -2302,6 +2359,8 @@ FixedwingPositionControl::control_manual_position(const float control_interval, 
 void FixedwingPositionControl::control_backtransition(const float control_interval, const Vector2f &ground_speed,
 		const position_setpoint_s &pos_sp_curr)
 {
+	const bool is_low_height = checkLowHeightConditions();
+
 	float target_airspeed = adapt_airspeed_setpoint(control_interval, pos_sp_curr.cruising_speed,
 				_performance_model.getMinimumCalibratedAirspeed(getLoadFactor()), ground_speed);
 
@@ -2317,9 +2376,13 @@ void FixedwingPositionControl::control_backtransition(const float control_interv
 		_lpos_where_backtrans_started = curr_pos_local;
 	}
 
-	navigateLine(_lpos_where_backtrans_started, curr_wp_local, curr_pos_local, ground_speed, _wind_vel);
+	float roll_body{0.0f};
 
-	float roll_body = getCorrectedNpfgRollSetpoint();
+	if (_control_mode.flag_control_position_enabled) {
+		navigateLine(_lpos_where_backtrans_started, curr_wp_local, curr_pos_local, ground_speed, _wind_vel);
+		roll_body = getCorrectedNpfgRollSetpoint();
+	}
+
 	target_airspeed = _npfg.getAirspeedRef() / _eas2tas;
 
 	float yaw_body = _yaw; // yaw is not controlled, so set setpoint to current yaw
@@ -2332,7 +2395,8 @@ void FixedwingPositionControl::control_backtransition(const float control_interv
 				   _param_fw_thr_min.get(),
 				   _param_fw_thr_max.get(),
 				   _param_sinkrate_target.get(),
-				   _param_climbrate_target.get());
+				   _param_climbrate_target.get(),
+				   is_low_height);
 
 	_att_sp.thrust_body[0] = (_landed) ? _param_fw_thr_min.get() : min(get_tecs_thrust(), _param_fw_thr_max.get());
 	const float pitch_body = get_tecs_pitch();
@@ -2555,7 +2619,6 @@ FixedwingPositionControl::Run()
 
 		// restore nominal TECS parameters in case changed intermittently (e.g. in landing handling)
 		_tecs.set_speed_weight(_param_fw_t_spdweight.get());
-		_tecs.set_altitude_error_time_constant(_param_fw_t_h_error_tc.get());
 
 		// restore lateral-directional guidance parameters (changed in takeoff mode)
 		_npfg.setPeriod(_param_npfg_period.get());
@@ -2687,6 +2750,8 @@ FixedwingPositionControl::Run()
 			_roll_slew_rate.setForcedValue(_roll);
 		}
 
+
+
 		// Publish estimate of level flight
 		_flight_phase_estimation_pub.get().timestamp = hrt_absolute_time();
 		_flight_phase_estimation_pub.update();
@@ -2755,7 +2820,7 @@ FixedwingPositionControl::reset_landing_state()
 void
 FixedwingPositionControl::tecs_update_pitch_throttle(const float control_interval, float alt_sp, float airspeed_sp,
 		float pitch_min_rad, float pitch_max_rad, float throttle_min, float throttle_max,
-		const float desired_max_sinkrate, const float desired_max_climbrate,
+		const float desired_max_sinkrate, const float desired_max_climbrate, const bool is_low_height,
 		bool disable_underspeed_detection, float hgt_rate_sp)
 {
 	// do not run TECS if vehicle is a VTOL and we are in rotary wing mode or in transition
@@ -2774,6 +2839,8 @@ FixedwingPositionControl::tecs_update_pitch_throttle(const float control_interva
 
 	/* No underspeed protection in landing mode */
 	_tecs.set_detect_underspeed_enabled(!disable_underspeed_detection);
+
+	updateTECSAltitudeTimeConstant(is_low_height, control_interval);
 
 	// HOTFIX: the airspeed rate estimate using acceleration in body-forward direction has shown to lead to high biases
 	// when flying tight turns. It's in this case much safer to just set the estimated airspeed rate to 0.
@@ -2895,6 +2962,27 @@ FixedwingPositionControl::initializeAutoLanding(const hrt_abstime &now, const po
 		reset_landing_state();
 		_time_started_landing = now;
 	}
+}
+
+bool FixedwingPositionControl::checkLowHeightConditions()
+{
+	// Are conditions for low-height
+	return _param_fw_t_thr_low_hgt.get() >= 0.f && _local_pos.dist_bottom_valid
+	       && _local_pos.dist_bottom < _param_fw_t_thr_low_hgt.get();
+}
+
+void FixedwingPositionControl::updateTECSAltitudeTimeConstant(const bool is_low_height, const float dt)
+{
+	// Target time constant for the TECS altitude tracker
+	float alt_tracking_tc = _param_fw_t_h_error_tc.get();
+
+	if (is_low_height) {
+		// If low-height conditions satisfied, compute target time constant for altitude tracking
+		alt_tracking_tc *= _param_fw_thrtc_sc.get();
+	}
+
+	_tecs_alt_time_const_slew_rate.update(alt_tracking_tc, dt);
+	_tecs.set_altitude_error_time_constant(_tecs_alt_time_const_slew_rate.getState());
 }
 
 Vector2f

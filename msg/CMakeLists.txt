@@ -61,7 +61,6 @@ set(msg_files
 	CanInterfaceStatus.msg
 	CellularStatus.msg
 	CollisionConstraints.msg
-	CollisionReport.msg
 	ConfigOverrides.msg
 	ControlAllocatorStatus.msg
 	Cpuload.msg
@@ -185,10 +184,14 @@ set(msg_files
 	RegisterExtComponentReply.msg
 	RegisterExtComponentRequest.msg
 	RoverAckermannGuidanceStatus.msg
+	RoverAckermannSetpoint.msg
 	RoverAckermannStatus.msg
 	RoverDifferentialGuidanceStatus.msg
 	RoverDifferentialSetpoint.msg
 	RoverDifferentialStatus.msg
+	RoverMecanumGuidanceStatus.msg
+	RoverMecanumSetpoint.msg
+	RoverMecanumStatus.msg
 	Rpm.msg
 	RtlStatus.msg
 	RtlTimeEstimate.msg
