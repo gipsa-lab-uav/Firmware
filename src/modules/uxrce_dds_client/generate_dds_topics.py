@@ -103,6 +103,10 @@ pubs_not_empty = msg_map['publications'] is not None
 if pubs_not_empty:
     for p in msg_map['publications']:
         process_message_type(p)
+        if 'rate' in p:
+            p['interval'] = int(1e3/float(p['rate']))
+        else:
+            p['interval'] = 10
 
 merged_em_globals['publications'] = msg_map['publications'] if pubs_not_empty else []
 
