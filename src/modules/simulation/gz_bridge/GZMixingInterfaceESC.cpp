@@ -111,7 +111,7 @@ void GZMixingInterfaceESC::motorSpeedCallback(const gz::msgs::Actuators &actuato
 
 	for (int i = 0; i < actuators.velocity_size(); i++) {
 		esc_status.esc[i].timestamp = hrt_absolute_time();
-		esc_status.esc[i].esc_rpm = actuators.velocity(i);
+		esc_status.esc[i].esc_rpm = 30*actuators.velocity(i)/M_PI;
 		esc_status.esc_online_flags |= 1 << i;
 
 		if (actuators.velocity(i) > 0) {

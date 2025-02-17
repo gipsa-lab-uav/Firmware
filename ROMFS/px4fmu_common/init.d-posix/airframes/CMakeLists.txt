@@ -93,6 +93,7 @@ px4_add_romfs_files(
 	4018_gz_quadtailsitter
 
 	4101_gz_dmr60
+	4102_gz_dmr60_mocap
 
 	6011_gazebo-classic_typhoon_h480
 	6011_gazebo-classic_typhoon_h480.post

@@ -97,9 +97,7 @@ elif [ "$PX4_SIMULATOR" = "gz" ] || [ "$(param show -q SIM_GZ_EN)" = "1" ]; then
 	else
 		echo "INFO  [init] Standalone PX4 launch, waiting for Gazebo"
 	fi
-	
-	sleep 10
-	
+
 	# start gz_bridge
 	if [ -n "${PX4_SIM_MODEL#*gz_}" ] && [ -z "${PX4_GZ_MODEL_NAME}" ]; then
 		# model specified, gz_bridge will spawn model
